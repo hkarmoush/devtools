@@ -1037,7 +1037,7 @@ Object? _applyFullStringToInstanceJson(Object? instanceJson, String fullValue) {
 /// case, this log entry will have a non-null `detailsComputer` field. After the
 /// data is calculated, the log entry will be modified to contain the calculated
 /// `details` data.
-class LogData with SearchableDataMixin {
+class LogData with SearchableDataMixin, Serializable {
   LogData(
     this.kind,
     this._details,
@@ -1063,6 +1063,67 @@ class LogData with SearchableDataMixin {
       }),
     );
   }
+
+  /// Creates a [LogData] instance from a JSON map.
+  LogData.fromJson(Map<String, Object?> json)
+    : kind = json[_kindKey] as String,
+      _details = json[_detailsKey] as String?,
+      timestamp = json[_timestampKey] as int?,
+      summary = json[_summaryKey] as String?,
+      level =
+          json[_levelKey] as int? ??
+          (json[_isErrorKey] == true ? Level.SEVERE.value : Level.INFO.value),
+      isError = json[_isErrorKey] as bool? ?? false,
+      isolateRef = json[_isolateRefKey] != null
+          ? IsolateRef.parse(
+              (json[_isolateRefKey] as Map).cast<String, dynamic>(),
+            )
+          : null,
+      zone = json[_zoneKey] != null
+          ? _zoneFromJson((json[_zoneKey] as Map).cast<String, Object?>())
+          : null {
+    detailsComputed.safeComplete(true);
+  }
+
+  static const _kindKey = 'kind';
+  static const _detailsKey = 'details';
+  static const _timestampKey = 'timestamp';
+  static const _summaryKey = 'summary';
+  static const _levelKey = 'level';
+  static const _isErrorKey = 'isError';
+  static const _isolateRefKey = 'isolateRef';
+  static const _zoneKey = 'zone';
+  static const _zoneNameKey = 'name';
+  static const _zoneIdentityHashCodeKey = 'identityHashCode';
+
+  static Map<String, Object?> _zoneToJson(ZoneDescription zone) => {
+    if (zone.name != null) _zoneNameKey: zone.name,
+    if (zone.identityHashCode != null)
+      _zoneIdentityHashCodeKey: zone.identityHashCode,
+  };
+
+  static ZoneDescription _zoneFromJson(Map<String, Object?> json) => (
+    name: json[_zoneNameKey] as String?,
+    identityHashCode: json[_zoneIdentityHashCodeKey] as int?,
+  );
+
+  String? get _detailsForExport {
+    if (details != null) return details;
+    if (needsComputing) return summary;
+    return null;
+  }
+
+  @override
+  Map<String, Object?> toJson() => {
+    _kindKey: kind,
+    if (timestamp != null) _timestampKey: timestamp,
+    _levelKey: level,
+    if (isError) _isErrorKey: isError,
+    if (summary != null) _summaryKey: summary,
+    if (_detailsForExport != null) _detailsKey: _detailsForExport,
+    if (isolateRef != null) _isolateRefKey: isolateRef!.toJson(),
+    if (zone != null) _zoneKey: _zoneToJson(zone!),
+  };
 
   final String kind;
   final int level;
