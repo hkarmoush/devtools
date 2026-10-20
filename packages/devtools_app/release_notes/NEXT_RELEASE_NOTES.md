@@ -48,6 +48,8 @@ To learn more about DevTools, check out the
 
 * Added the ability to pin classes to the top of the Profile Memory table.
   [#8898](https://github.com/flutter/devtools/issues/8898)
+* Reduced the time it takes to process a heap snapshot on the Diff tab.
+  [#4822](https://github.com/flutter/devtools/issues/4822)
 
 ## Debugger updates
 

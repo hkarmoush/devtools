@@ -201,17 +201,9 @@ class SingleClassData extends ClassData {
   void countInstance(
     HeapSnapshotGraph graph, {
     required int index,
-    required List<int>? retainers,
+    required PathFromRoot? path,
     required List<int>? retainedSizes,
   }) {
-    final path = retainers == null
-        ? null
-        : PathFromRoot.forObject(
-            graph,
-            shortestRetainers: retainers,
-            index: index,
-          );
-
     final excludeFromRetained =
         path != null &&
         retainedSizes != null &&

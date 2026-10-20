@@ -45,11 +45,14 @@ void main() {
       );
     const shortestRetainers = [0, 0, 1, 2, 3];
 
-    PathFromRoot objectPath(int index) => PathFromRoot.forObject(
+    final paths = RetainingPaths(
       graph,
       shortestRetainers: shortestRetainers,
-      index: index,
+      classNames: [
+        for (final c in graph.classes) HeapClassName.fromHeapSnapshotClass(c),
+      ],
     );
+    PathFromRoot objectPath(int index) => paths.forObject(index);
 
     test('directly to root', () {
       final path = objectPath(2);

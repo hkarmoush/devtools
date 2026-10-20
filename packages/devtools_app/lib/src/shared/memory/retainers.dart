@@ -4,6 +4,8 @@
 
 import 'dart:typed_data';
 
+import '../primitives/utils.dart';
+
 /// Returns true if the given object can retain other objects from garbage collection.
 typedef IsWeak = bool Function(int index);
 
@@ -34,14 +36,16 @@ const _sentinelIndex = 0;
 ///
 /// Index 0 is reserved for sentinel object.
 /// The sentinel object should not have size and references.
-ShortestRetainersResult findShortestRetainers({
+///
+/// Releases the UI thread periodically, so a big graph does not freeze the UI.
+Future<ShortestRetainersResult> findShortestRetainers({
   required int graphSize,
   required int rootIndex,
   required IsWeak isWeak,
   required References refs,
   required ShallowSize shallowSize,
   bool calculateSizes = true,
-}) {
+}) async {
   assert(refs(_sentinelIndex).isEmpty);
   assert(
     shallowSize(_sentinelIndex) <= 0,
@@ -59,6 +63,17 @@ ShortestRetainersResult findShortestRetainers({
     retainedSizes[rootIndex] = shallowSize(rootIndex);
   }
 
+  // Objects in the order they are reached from the root, excluding the root.
+  //
+  // Every object is reached after its retainer. That makes the reversed order
+  // suitable for accumulating retained sizes from leaves to the root.
+  // Weak objects and objects without references are included, because they
+  // are retained too, even though they do not retain other objects.
+  final reached = calculateSizes ? Uint32List(graphSize) : null;
+  var reachedCount = 0;
+
+  final uiReleaser = UiReleaser();
+
   // Array of all objects where the best distance from root is n.
   // n starts with 0 and increases by 1 on each step of the algorithm.
   // The objects are ends of the graph cut.
@@ -71,40 +86,54 @@ ShortestRetainersResult findShortestRetainers({
     final nextCut = <int>[];
     for (final index in cut) {
       for (final ref in refs(index)) {
-        if (ref == _sentinelIndex || retainers[ref] != 0) continue;
-        retainers[ref] = index;
-        retainedSizes?[ref] = shallowSize(ref);
-
-        if (retainedSizes != null) {
-          _addRetainedSize(
-            index: ref,
-            retainedSizes: retainedSizes,
-            retainers: retainers,
-            shallowSize: shallowSize,
-          );
+        if (ref == _sentinelIndex || ref == rootIndex || retainers[ref] != 0) {
+          continue;
         }
+        retainers[ref] = index;
+        reached?[reachedCount++] = ref;
         if (!isWeak(ref)) nextCut.add(ref);
+
+        if (uiReleaser.step()) await uiReleaser.releaseUi();
       }
     }
     cut = nextCut;
   }
 
+  if (retainedSizes != null && reached != null) {
+    _calculateRetainedSizes(
+      retainedSizes: retainedSizes,
+      retainers: retainers,
+      reached: reached,
+      reachedCount: reachedCount,
+      shallowSize: shallowSize,
+    );
+  }
+
   return (retainers: retainers, retainedSizes: retainedSizes);
 }
 
-/// Assuming the object is leaf, initializes its retained size
-/// and adds the size to each shortest retainer recursively.
-void _addRetainedSize({
-  required int index,
+/// Sets retained size of each reached object to the sum of shallow sizes
+/// of the object and of all objects it retains.
+///
+/// Time is O(number of objects). Walking the retainer chain of each object
+/// instead would be O(number of objects * length of the chain).
+void _calculateRetainedSizes({
   required Uint32List retainedSizes,
   required Uint32List retainers,
+  required Uint32List reached,
+  required int reachedCount,
   required ShallowSize shallowSize,
 }) {
-  final addedSize = shallowSize(index);
-  retainedSizes[index] = addedSize;
+  for (var i = 0; i < reachedCount; i++) {
+    final index = reached[i];
+    retainedSizes[index] = shallowSize(index);
+  }
 
-  while (retainers[index] > 0) {
-    index = retainers[index];
-    retainedSizes[index] += addedSize;
+  // Each object comes after its retainer in [reached], so by the time an
+  // object is added to its retainer, the object already includes everything it
+  // retains.
+  for (var i = reachedCount - 1; i >= 0; i--) {
+    final index = reached[i];
+    retainedSizes[retainers[index]] += retainedSizes[index];
   }
 }

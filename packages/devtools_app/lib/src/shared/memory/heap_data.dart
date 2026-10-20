@@ -11,6 +11,7 @@ import '../primitives/utils.dart';
 import 'class_name.dart';
 import 'classes.dart';
 import 'retainers.dart';
+import 'retaining_path.dart';
 import 'simple_items.dart';
 
 /// Raw and calculated data of the heap snapshot.
@@ -61,7 +62,7 @@ class HeapData {
     if (calculateRetainingPaths || calculateRetainedSizes) {
       final weakClasses = _WeakClasses(graph);
 
-      final result = findShortestRetainers(
+      final result = await findShortestRetainers(
         graphSize: graph.objects.length,
         rootIndex: heapRootIndex,
         isWeak: weakClasses.isWeak,
@@ -74,10 +75,21 @@ class HeapData {
       if (calculateRetainedSizes) retainedSizes = result.retainedSizes;
     }
 
-    // Complexity of this part is O(n)*O(p) where
-    // n is number of objects and p is length of retaining path.
+    // Complexity of this part is O(n) plus O(r)*O(p), where
+    // n is number of objects, r is number of objects that retain other objects,
+    // and p is length of retaining path. See [RetainingPaths].
     if (calculateClassData) {
       final nameToClass = <HeapClassName, SingleClassData>{};
+      final classNames = [
+        for (final c in graph.classes) HeapClassName.fromHeapSnapshotClass(c),
+      ];
+      final paths = retainers == null
+          ? null
+          : RetainingPaths(
+              graph,
+              shortestRetainers: retainers,
+              classNames: classNames,
+            );
       int dartSize = 0;
       int reachableSize = graph.objects[heapRootIndex].shallowSize;
 
@@ -92,9 +104,7 @@ class HeapData {
           continue;
         }
 
-        final className = HeapClassName.fromHeapSnapshotClass(
-          graph.classes[object.classId],
-        );
+        final className = classNames[object.classId];
 
         // Ignore sentinels, because their size is not known.
         if (className.isSentinel) {
@@ -109,7 +119,7 @@ class HeapData {
             .countInstance(
               graph,
               index: i,
-              retainers: retainers,
+              path: paths?.forObject(i),
               retainedSizes: retainedSizes,
             );
       }
@@ -154,8 +164,7 @@ class _WeakClasses {
   /// Returns true if the object cannot retain other objects.
   bool isWeak(int objectIndex) {
     final object = graph.objects[objectIndex];
-    if (object.references.isEmpty) return true;
-    final classId = object.classId;
-    return _weakClasses.contains(classId);
+    if (_weakClasses.contains(object.classId)) return true;
+    return object.references.isEmpty;
   }
 }

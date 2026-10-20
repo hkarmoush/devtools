@@ -234,11 +234,15 @@ class HeapClassName with Serializable {
   @override
   late final hashCode = fullName.hashCode;
 
-  static String _normalizeLibrary(String? library) =>
-      (library ?? '').trim().replaceFirst(
-        RegExp('^${PackagePrefixes.dartInSnapshot}'),
-        PackagePrefixes.dart,
-      );
+  /// Compiled once, because [_normalizeLibrary] is called for every class of
+  /// every object when a heap snapshot is processed.
+  static final _dartInSnapshotPrefix = RegExp(
+    '^${PackagePrefixes.dartInSnapshot}',
+  );
+
+  static String _normalizeLibrary(String? library) => (library ?? '')
+      .trim()
+      .replaceFirst(_dartInSnapshotPrefix, PackagePrefixes.dart);
 
   bool matches(ClassRef ref) {
     return HeapClassName.fromClassRef(ref) == this;

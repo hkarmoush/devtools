@@ -25,12 +25,7 @@ SingleClassData testClassData(
 ) {
   final result = SingleClassData(className: className);
   for (final index in indexes) {
-    result.countInstance(
-      graph,
-      index: index,
-      retainers: null,
-      retainedSizes: null,
-    );
+    result.countInstance(graph, index: index, path: null, retainedSizes: null);
   }
   return result;
 }

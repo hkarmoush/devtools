@@ -56,32 +56,6 @@ class PathFromRoot {
       classes = const {},
       hashCode = _hashOfEmptyPath;
 
-  factory PathFromRoot.forObject(
-    HeapSnapshotGraph graph, {
-    required List<int> shortestRetainers,
-    required int index,
-  }) {
-    HeapClassName objectClass(int index) {
-      final classId = graph.objects[index].classId;
-      return HeapClassName.fromHeapSnapshotClass(graph.classes[classId]);
-    }
-
-    var nextIndex = shortestRetainers[index];
-    if (nextIndex == heapRootIndex) {
-      return empty;
-    }
-
-    final path = <HeapClassName>[];
-
-    while (nextIndex != heapRootIndex) {
-      final className = objectClass(nextIndex);
-      path.add(className);
-      nextIndex = shortestRetainers[nextIndex];
-    }
-
-    return PathFromRoot.fromPath(path);
-  }
-
   factory PathFromRoot.fromPath(
     List<HeapClassName> path, {
     @visibleForTesting debugOmitClassesInRetainingPath = false,
@@ -218,5 +192,72 @@ class PathFromRoot {
     if (inverted) data = data.reversed.toList();
     final result = data.join().trim();
     return result;
+  }
+}
+
+/// Computes [PathFromRoot]s for the objects of a heap snapshot.
+///
+/// The path of an object is the path of its retainer with the class of the
+/// retainer prepended. Objects that share a retainer, like the elements of a
+/// list, therefore share the work, and each retainer is visited once instead
+/// of once per retained object. This turns the cost of building all paths from
+/// O(objects * path length) into O(retainers * path length).
+///
+/// Holds one entry per object of the heap, so it should not outlive the
+/// calculation it is created for.
+class RetainingPaths {
+  RetainingPaths(
+    HeapSnapshotGraph graph, {
+    required this.shortestRetainers,
+    required List<HeapClassName> classNames,
+  }) : _graph = graph,
+       _classNames = classNames,
+       _paths = List<PathFromRoot?>.filled(graph.objects.length, null);
+
+  final HeapSnapshotGraph _graph;
+
+  /// Retainer for each object, as returned by `findShortestRetainers`.
+  final List<int> shortestRetainers;
+
+  /// Name of each class, by class id.
+  ///
+  /// Computed once per heap, because creating a [HeapClassName] is too
+  /// expensive to do for every step of every path.
+  final List<HeapClassName> _classNames;
+
+  /// Path for each object that is already computed, by object index.
+  final List<PathFromRoot?> _paths;
+
+  /// Returns the path from the root to the object at [index].
+  ///
+  /// The object has to be reachable from the root.
+  PathFromRoot forObject(int index) {
+    // Retainers without a known path, from [index] towards the root.
+    // The paths are computed iteratively, because a heap can contain retaining
+    // chains that are too long for recursion, for example a long linked list.
+    final unknown = <int>[];
+    var current = index;
+    while (_paths[current] == null) {
+      if (shortestRetainers[current] == heapRootIndex) {
+        _paths[current] = PathFromRoot.empty;
+        break;
+      }
+      assert(
+        shortestRetainers[current] != 0,
+        'Object $current is not reachable from the root.',
+      );
+      unknown.add(current);
+      current = shortestRetainers[current];
+    }
+
+    for (final object in unknown.reversed) {
+      final retainer = shortestRetainers[object];
+      _paths[object] = PathFromRoot.fromPath([
+        _classNames[_graph.objects[retainer].classId],
+        ..._paths[retainer]!.path,
+      ]);
+    }
+
+    return _paths[index]!;
   }
 }
